@@ -706,9 +706,9 @@ class _PawnPainter extends CustomPainter {
     c.drawOval(base, Paint()..shader = sh);
     final body = Path()
       ..moveTo(w * .14, h * .86)
-      ..quadTo(w * .34, h * .56, w * .36, h * .46)
+      ..quadraticBezierTo(w * .34, h * .56, w * .36, h * .46)
       ..lineTo(w * .64, h * .46)
-      ..quadTo(w * .66, h * .56, w * .86, h * .86)
+      ..quadraticBezierTo(w * .66, h * .56, w * .86, h * .86)
       ..close();
     c.drawPath(body, Paint()..shader = sh);
     c.drawCircle(Offset(w * .5, h * .3), w * .24, Paint()..shader = sh);
