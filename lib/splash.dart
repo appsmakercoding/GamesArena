@@ -1,6 +1,7 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'home.dart';
-import 'logo.dart';
+import 'ui.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -9,17 +10,18 @@ class SplashPage extends StatefulWidget {
 }
 
 class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
-  late final AnimationController _logoCtrl =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 1100))..forward();
-  late final AnimationController _loadCtrl =
-      AnimationController(vsync: this, duration: const Duration(milliseconds: 2200))..forward();
+  late final AnimationController _loop =
+      AnimationController(vsync: this, duration: const Duration(seconds: 4))..repeat();
+  late final AnimationController _p =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 2800));
 
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(milliseconds: 2400), () {
+    _p.forward().then((_) {
       if (!mounted) return;
       Navigator.of(context).pushReplacement(PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 500),
         pageBuilder: (_, __, ___) => const HomePage(),
         transitionsBuilder: (_, a, __, child) => FadeTransition(opacity: a, child: child),
       ));
@@ -28,146 +30,129 @@ class _SplashPageState extends State<SplashPage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
-    _logoCtrl.dispose();
-    _loadCtrl.dispose();
+    _loop.dispose();
+    _p.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final scale = CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutBack);
+    final h = MediaQuery.of(context).size.height;
+    final hs = math.min(250.0, h * .3);
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            center: Alignment(0, -0.18),
-            radius: 1.3,
-            colors: [Color(0xFF33177A), Color(0xFF120B2E), Color(0xFF060410)],
-          ),
-        ),
+      body: ArenaBg(
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
-            child: Column(
-              children: [
-                const Spacer(flex: 2),
-                ScaleTransition(
-                  scale: scale,
-                  child: FadeTransition(
-                    opacity: _logoCtrl,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white.withOpacity(.04),
-                            border: Border.all(color: Colors.white.withOpacity(.14)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF7C4DFF).withOpacity(.55),
-                                blurRadius: 40,
-                                spreadRadius: 4,
-                              ),
-                            ],
-                          ),
-                          child: const ArenaLogo(size: 116),
-                        ),
-                        const SizedBox(height: 22),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(24),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF7C4DFF), Color(0xFFFF4081)],
-                            ),
-                            border: Border.all(color: Colors.white.withOpacity(.25)),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFFFF4081).withOpacity(.38),
-                                blurRadius: 22,
-                                offset: const Offset(0, 8),
-                              ),
-                            ],
-                          ),
-                          child: const Text(
-                            'গেমস এরিনা',
-                            style: TextStyle(
-                              fontSize: 30,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white,
-                              letterSpacing: 0.8,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'খেলুন, জিতুন, মজা করুন!',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const Spacer(flex: 2),
-                AnimatedBuilder(
-                  animation: _loadCtrl,
-                  builder: (_, __) => Column(
-                    children: [
-                      const SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.6,
-                          color: Color(0xFF38EF7D),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Loading...',
-                        style: TextStyle(color: Colors.white70, fontSize: 13, letterSpacing: 0.7),
-                      ),
-                      const SizedBox(height: 10),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          height: 9,
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: Colors.white12,
-                            border: Border.all(color: Colors.white10),
-                          ),
-                          alignment: Alignment.centerLeft,
-                          child: FractionallySizedBox(
-                            widthFactor: _loadCtrl.value.clamp(0.0, 1.0),
-                            child: Container(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [Color(0xFF00C6FF), Color(0xFF7C4DFF), Color(0xFFFF4081)],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  '👑 Powered by Hasan',
-                  style: TextStyle(color: Colors.white54, fontSize: 12, letterSpacing: 1.1),
-                ),
-              ],
+          child: Column(children: [
+            const Spacer(flex: 2),
+            SizedBox(
+              width: hs * 1.4,
+              height: hs * 1.1,
+              child: AnimatedBuilder(animation: _loop, builder: (_, __) => _hero(hs)),
             ),
-          ),
+            const SizedBox(height: 6),
+            StrokeText('গেমস', size: hs * .26),
+            StrokeText('এরিনা', size: hs * .3, fill: AC.gold),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(30),
+                gradient: LinearGradient(colors: [AC.violet.withOpacity(.2), AC.pink.withOpacity(.35), AC.violet.withOpacity(.2)]),
+                border: Border.all(color: Colors.white.withOpacity(.2)),
+              ),
+              child: const Text('খেলুন, জিতুন, মজা করুন!', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+            ),
+            const Spacer(flex: 2),
+            Row(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: const [
+              Pawn(Color(0xFFFF4D6D), size: 44),
+              SizedBox(width: 10),
+              Pawn(Color(0xFF3B82F6), size: 52),
+              SizedBox(width: 40),
+              Pawn(Color(0xFF2EE66B), size: 52),
+              SizedBox(width: 10),
+              Pawn(Color(0xFFFFC83D), size: 44),
+            ]),
+            const SizedBox(height: 18),
+            const Text('Loading...', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white70)),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 48),
+              child: AnimatedBuilder(
+                animation: _p,
+                builder: (_, __) => ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Stack(children: [
+                    Container(height: 12, color: Colors.white.withOpacity(.12)),
+                    FractionallySizedBox(
+                      widthFactor: Curves.easeInOut.transform(_p.value).clamp(0.02, 1.0),
+                      child: Container(
+                        height: 12,
+                        decoration: const BoxDecoration(gradient: LinearGradient(colors: [AC.violet, AC.pink, AC.gold])),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
+            const SizedBox(height: 22),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              const Crown(18),
+              const SizedBox(width: 6),
+              Text('Powered by Hasan', style: TextStyle(color: Colors.white.withOpacity(.7), fontWeight: FontWeight.w600)),
+            ]),
+            const SizedBox(height: 14),
+          ]),
         ),
       ),
     );
   }
+
+  Widget _hero(double hs) {
+    final t = _loop.value;
+    final bob = math.sin(t * 2 * math.pi) * 7;
+    return Stack(alignment: Alignment.center, clipBehavior: Clip.none, children: [
+      Container(
+        width: hs * 1.1,
+        height: hs * 1.1,
+        decoration: BoxDecoration(shape: BoxShape.circle, gradient: RadialGradient(colors: [AC.violet.withOpacity(.55), Colors.transparent])),
+      ),
+      Transform.rotate(angle: -.35, child: CustomPaint(size: Size(hs * 1.25, hs * .42), painter: _RingPainter(t, false))),
+      Transform.translate(
+        offset: Offset(0, bob),
+        child: Stack(alignment: Alignment.topCenter, clipBehavior: Clip.none, children: [
+          Padding(padding: EdgeInsets.only(top: hs * .14), child: Dice3D(size: hs * .72)),
+          Positioned(top: -hs * .02, child: Transform.rotate(angle: .1, child: Crown(hs * .34))),
+        ]),
+      ),
+      Transform.rotate(angle: -.35, child: CustomPaint(size: Size(hs * 1.25, hs * .42), painter: _RingPainter(t, true))),
+      Positioned(left: hs * .02, top: hs * .3 + math.sin((t + .3) * 2 * math.pi) * 8, child: const Text('🪙', style: TextStyle(fontSize: 30))),
+      Positioned(right: hs * .0, top: hs * .55 + math.sin((t + .7) * 2 * math.pi) * 8, child: const Text('🪙', style: TextStyle(fontSize: 26))),
+      Positioned(right: hs * .12, top: hs * .06 + math.sin((t + .5) * 2 * math.pi) * 6, child: const Text('✨', style: TextStyle(fontSize: 22))),
+    ]);
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  final double t;
+  final bool front;
+  _RingPainter(this.t, this.front);
+  @override
+  void paint(Canvas c, Size s) {
+    final rect = Rect.fromLTWH(0, 0, s.width, s.height);
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5
+      ..shader = SweepGradient(
+        colors: [AC.gold.withOpacity(0), AC.gold, Colors.white, AC.gold, AC.gold.withOpacity(0)],
+        transform: GradientRotation(t * 2 * math.pi),
+      ).createShader(rect);
+    if (front) {
+      c.drawArc(rect, 0, math.pi, false, paint);
+    } else {
+      c.drawOval(rect, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter o) => o.t != t;
 }

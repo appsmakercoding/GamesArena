@@ -2,11 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'splash.dart';
 import 'net.dart';
+import 'profile.dart';
+import 'ui.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await loadDbUrl();
-  SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle.light);
+  await Profile.load();
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: AC.bg0,
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
   runApp(const GamesArenaApp());
 }
 
@@ -19,9 +27,8 @@ class GamesArenaApp extends StatelessWidget {
         theme: ThemeData(
           brightness: Brightness.dark,
           useMaterial3: true,
-          scaffoldBackgroundColor: const Color(0xFF0E0B1F),
-          colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF7C4DFF), brightness: Brightness.dark),
+          scaffoldBackgroundColor: AC.bg0,
+          colorScheme: ColorScheme.fromSeed(seedColor: AC.violet, brightness: Brightness.dark),
         ),
         home: const SplashPage(),
       );

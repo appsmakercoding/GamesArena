@@ -1,26 +1,19 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'common.dart';
 import 'net.dart';
+import 'profile.dart';
+import 'ui.dart';
 
 List<Offset> _mk() {
   final r = <Offset>[];
   void a(int x, int y, int dx, int dy, int n) {
     for (var i = 0; i < n; i++) r.add(Offset(x + dx * i + .5, y + dy * i + .5));
   }
-  a(1, 6, 1, 0, 5);
-  a(6, 5, 0, -1, 6);
-  a(7, 0, 1, 0, 2);
-  a(8, 1, 0, 1, 5);
-  a(9, 6, 1, 0, 6);
-  a(14, 7, 0, 1, 2);
-  a(13, 8, -1, 0, 5);
-  a(8, 9, 0, 1, 6);
-  a(7, 14, -1, 0, 2);
-  a(6, 13, 0, -1, 5);
-  a(5, 8, -1, 0, 6);
-  a(0, 7, 0, -1, 2);
+  a(1, 6, 1, 0, 5); a(6, 5, 0, -1, 6); a(7, 0, 1, 0, 2); a(8, 1, 0, 1, 5);
+  a(9, 6, 1, 0, 6); a(14, 7, 0, 1, 2); a(13, 8, -1, 0, 5); a(8, 9, 0, 1, 6);
+  a(7, 14, -1, 0, 2); a(6, 13, 0, -1, 5); a(5, 8, -1, 0, 6); a(0, 7, 0, -1, 2);
   return r;
 }
 
@@ -28,13 +21,7 @@ final _path = _mk();
 const _start = [0, 13, 26, 39];
 const _safe = {0, 8, 13, 21, 26, 34, 39, 47};
 const _dir = [Offset(-1, 0), Offset(0, -1), Offset(1, 0), Offset(0, 1)];
-const _hd = [
-  [1, 7, 1, 0],
-  [7, 1, 0, 1],
-  [13, 7, -1, 0],
-  [7, 13, 0, -1],
-];
-
+const _hd = [[1, 7, 1, 0], [7, 1, 0, 1], [13, 7, -1, 0], [7, 13, 0, -1]];
 List<Offset> _home(int i) {
   final d = _hd[i];
   return List.generate(5, (k) => Offset(d[0] + d[2] * k + .5, d[1] + d[3] * k + .5));
@@ -44,15 +31,16 @@ int _abs(int pl, int p) => (_start[pl] + p) % 52;
 
 Offset _where(int pl, int p, int t) {
   if (p < 0) {
-    return Offset(
-      [0, 9, 9, 0][pl] + (t % 2 == 0 ? 1.5 : 4.5),
-      [0, 0, 9, 9][pl] + (t < 2 ? 1.5 : 4.5),
-    );
+    return Offset([0, 9, 9, 0][pl] + (t % 2 == 0 ? 1.5 : 4.5), [0, 0, 9, 9][pl] + (t < 2 ? 1.5 : 4.5));
   }
   if (p <= 50) return _path[_abs(pl, p)];
   if (p < 56) return _home(pl)[p - 51];
   return const Offset(7.5, 7.5) + _dir[pl] * .9 + Offset((t - 1.5) * .14, 0);
 }
+
+/// লুডুর রং (কোণ অনুযায়ী): উপরে-বাঁয়ে নীল, উপরে-ডানে লাল, নিচে-ডানে সবুজ, নিচে-বাঁয়ে হলুদ
+const _lc = [Color(0xFF2D9CFF), Color(0xFFFF3B4E), Color(0xFF16C25A), Color(0xFFFFC21A)];
+const _ln = ['নীল', 'লাল', 'সবুজ', 'হলুদ'];
 
 class LudoPage extends StatefulWidget {
   final int n;
@@ -63,22 +51,20 @@ class LudoPage extends StatefulWidget {
   State<LudoPage> createState() => _LudoState();
 }
 
-class _LudoState extends State<LudoPage> with NetMix<LudoPage> {
+class _LudoState extends State<LudoPage> with NetMix<LudoPage>, TickerProviderStateMixin {
   @override
   Net? get net => widget.net;
   bool ready = false;
 
+  late final AnimationController pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+  late final AnimationController mv = AnimationController(vsync: this, duration: const Duration(milliseconds: 380));
+  Map<int, List<Offset>> _from = {};
+
   @override
   bool remote(Map a) {
     if (!ready) return false;
-    if (a['t'] == 'r' && mov.isEmpty) {
-      _roll();
-      return true;
-    }
-    if (a['t'] == 'm' && mov.contains(a['k'])) {
-      _move(a['k'] as int);
-      return true;
-    }
+    if (a['t'] == 'r' && mov.isEmpty) { _roll(); return true; }
+    if (a['t'] == 'm' && mov.contains(a['k'])) { _move(a['k'] as int); return true; }
     return false;
   }
 
@@ -92,36 +78,38 @@ class _LudoState extends State<LudoPage> with NetMix<LudoPage> {
   late List<bool> bots;
   late List<List<int>> pos;
   int turn = 0, dice = 0;
-  bool busy = false, over = false, stepping = false;
+  bool busy = false, over = false;
   List<int> mov = [];
 
   @override
   void initState() {
     super.initState();
+    pulse.repeat(reverse: true);
+    mv.value = 0;
     _init();
+  }
+
+  @override
+  void dispose() {
+    pulse.dispose();
+    mv.dispose();
+    super.dispose();
   }
 
   void _init() {
     seats = widget.n == 2 ? [0, 2] : widget.n == 3 ? [0, 1, 2] : [0, 1, 2, 3];
     bots = List.generate(widget.n, (i) => widget.vsPc && i > 0);
     pos = List.generate(widget.n, (_) => List.filled(4, -1));
-    turn = 0;
-    dice = 0;
-    busy = false;
-    over = false;
-    stepping = false;
-    mov = [];
+    turn = 0; dice = 0; busy = false; over = false; mov = [];
+    _from = {};
     setState(() {});
     _auto();
   }
 
   void _auto() {
+    if (!mounted) return;
     ready = true;
-    if (bots[turn] && !over) {
-      Future.delayed(const Duration(milliseconds: 800), () {
-        if (mounted) _roll();
-      });
-    }
+    if (bots[turn] && !over) Future.delayed(const Duration(milliseconds: 800), () { if (mounted) _roll(); });
   }
 
   void _roll() {
@@ -130,10 +118,7 @@ class _LudoState extends State<LudoPage> with NetMix<LudoPage> {
     busy = true;
     var k = 0;
     Timer.periodic(const Duration(milliseconds: 70), (t) {
-      if (!mounted) {
-        t.cancel();
-        return;
-      }
+      if (!mounted) { t.cancel(); return; }
       setState(() => dice = rnd.nextInt(6) + 1);
       if (++k >= 8) {
         t.cancel();
@@ -154,9 +139,7 @@ class _LudoState extends State<LudoPage> with NetMix<LudoPage> {
       return;
     }
     if (bots[turn] || m.length == 1) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) _move(bots[turn] ? _ai(m) : m[0]);
-      });
+      Future.delayed(const Duration(milliseconds: 500), () { if (mounted) _move(bots[turn] ? _ai(m) : m[0]); });
     } else {
       setState(() => mov = m);
       ready = true;
@@ -176,469 +159,420 @@ class _LudoState extends State<LudoPage> with NetMix<LudoPage> {
         for (var j = 0; j < widget.n; j++) {
           if (j == turn) continue;
           for (final q in pos[j]) {
-            if (q >= 0 && q <= 50 && _abs(seats[j], q) == _abs(pl, np) && !_safe.contains(_abs(pl, np))) {
-              s += 100;
-            }
+            if (q >= 0 && q <= 50 && _abs(seats[j], q) == _abs(pl, np) && !_safe.contains(_abs(pl, np))) s += 100;
           }
         }
       }
-      if (s > bs) {
-        bs = s.toInt();
-        best = t;
-      }
+      if (s > bs) { bs = s.toInt(); best = t; }
     }
     return best;
   }
 
-  void _move(int t) {
-    if (stepping) return;
-    ready = false;
-    stepping = true;
-    final currentTurn = turn;
-    final currentDice = dice;
-    final pl = seats[currentTurn];
-    final startPos = pos[currentTurn][t];
+  int _reward() => ((widget.vsPc && turn == 0) || (net != null && net!.seat == turn)) ? 50 : 0;
 
-    setState(() {
-      mov = [];
-    });
-
-    // If piece is in yard (-1) and rolled 6, move out to start square (0)
-    if (startPos < 0) {
-      setState(() {
-        pos[currentTurn][t] = 0;
-      });
-      Future.delayed(const Duration(milliseconds: 160), () {
-        if (!mounted) return;
-        _finishMove(currentTurn, t, pl, 0, currentDice);
-      });
-      return;
-    }
-
-    // Otherwise step 1 square at a time up to currentDice steps
-    var step = 0;
-    Timer.periodic(const Duration(milliseconds: 150), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      step++;
-      final nextP = startPos + step;
-      setState(() {
-        pos[currentTurn][t] = nextP;
-      });
-      if (step >= currentDice) {
-        timer.cancel();
-        Future.delayed(const Duration(milliseconds: 120), () {
-          if (!mounted) return;
-          _finishMove(currentTurn, t, pl, nextP, currentDice);
-        });
-      }
-    });
+  String _name(int i) {
+    if (bots[i]) return widget.n == 2 ? 'কম্পিউটার' : 'কম্পিউটার ${bnNum(i)}';
+    if (net != null) return i == net!.seat ? '${Profile.name} (আপনি)' : 'বন্ধু';
+    if (widget.vsPc) return Profile.name;
+    return 'প্লেয়ার ${bnNum(i + 1)}';
   }
 
-  void _finishMove(int currentTurn, int t, int pl, int finalPos, int rolledDice) {
-    var extra = rolledDice == 6 || finalPos == 56;
+  void _move(int t) {
+    ready = false;
+    final pl = seats[turn];
+    final p = pos[turn][t];
+    final np = p == -1 ? 0 : p + dice;
+    var extra = dice == 6 || np == 56;
+    // হেঁটে যাওয়ার রুট: প্রতিটি ঘর ধরে ধরে
+    final route = <Offset>[_where(pl, p, t)];
+    if (p == -1) {
+      route.add(_where(pl, 0, t));
+    } else {
+      for (var q = p + 1; q <= np; q++) { route.add(_where(pl, q, t)); }
+    }
+    final seg = route.length - 1;
+    final from = <int, List<Offset>>{turn * 4 + t: route};
     setState(() {
-      if (finalPos <= 50 && !_safe.contains(_abs(pl, finalPos))) {
+      pos[turn][t] = np;
+      mov = [];
+      if (np <= 50 && !_safe.contains(_abs(pl, np))) {
         for (var j = 0; j < widget.n; j++) {
-          if (j == currentTurn) continue;
+          if (j == turn) continue;
           for (var u = 0; u < 4; u++) {
             final q = pos[j][u];
-            if (q >= 0 && q <= 50 && _abs(seats[j], q) == _abs(pl, finalPos)) {
+            if (q >= 0 && q <= 50 && _abs(seats[j], q) == _abs(pl, np)) {
+              final old = _where(seats[j], q, u);
+              // কাটা গুটি হাঁটা শেষ হওয়া পর্যন্ত জায়গায় থাকে, তারপর ঘরে ফেরে
+              from[j * 4 + u] = [for (var z = 0; z < seg; z++) old, _where(seats[j], -1, u)];
               pos[j][u] = -1;
               extra = true;
             }
           }
         }
       }
-      stepping = false;
+      _from = from;
     });
-
-    if (pos[currentTurn].every((e) => e == 56)) {
-      over = true;
-      showWin(context, kNames[pl], kCol[pl], net == null ? _init : () => Navigator.pop(context));
-      return;
-    }
-    extra ? _auto() : _next();
+    final won = pos[turn].every((e) => e == 56);
+    if (won) over = true;
+    mv.duration = Duration(milliseconds: math.max(380, 170 * seg));
+    mv.forward(from: 0).then((_) {
+      if (!mounted) return;
+      setState(() => _from = {});
+      if (won) {
+        final rw = _reward();
+        if (rw > 0) { Profile.addCoins(rw); Profile.addXp(20); }
+        showWin(context, _name(turn), _lc[pl], net == null ? _init : () => Navigator.pop(context), reward: rw);
+        return;
+      }
+      extra ? _auto() : _next();
+    });
   }
 
   void _next() {
     if (!mounted) return;
-    setState(() {
-      turn = (turn + 1) % widget.n;
-      dice = 0;
-    });
+    setState(() { turn = (turn + 1) % widget.n; dice = 0; });
     _auto();
   }
 
   void _tap(Offset o, double w) {
-    if (mov.isEmpty || bots[turn] || !ready || stepping || !canAct(turn)) return;
+    if (mov.isEmpty || bots[turn] || !ready || !canAct(turn)) return;
     final u = Offset(o.dx / w * 15, o.dy / w * 15);
     for (final t in mov) {
-      if ((_where(seats[turn], pos[turn][t], t) - u).distance < .95) {
-        emit({'t': 'm', 'k': t});
-        _move(t);
-        return;
-      }
+      if ((_where(seats[turn], pos[turn][t], t) - u).distance < .9) { emit({'t': 'm', 'k': t}); _move(t); return; }
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final pl = seats[turn];
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF1D114D), Color(0xFF0C081D), Color(0xFF060410)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: Row(
-                  children: [
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                    ),
-                    const Expanded(
-                      child: Text(
-                        '🎲 লুডু',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                    if (net == null)
-                      IconButton(onPressed: _init, icon: const Icon(Icons.refresh_rounded))
-                    else
-                      const SizedBox(width: 48),
-                  ],
-                ),
-              ),
-              TurnBar(seats, turn, bots),
-              Expanded(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(10),
-                    child: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF7C4DFF), Color(0xFFFF4081)],
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF7C4DFF).withOpacity(.35),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: AspectRatio(
-                        aspectRatio: 1,
-                        child: LayoutBuilder(
-                          builder: (_, bc) => GestureDetector(
-                            onTapUp: (d) => _tap(d.localPosition, bc.maxWidth),
-                            child: CustomPaint(
-                              painter: _LudoPainter(pos, seats, mov, turn),
-                              size: Size.infinite,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.white10,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: kCol[pl].withOpacity(.55)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    DiceView(
-                      dice,
-                      active: !bots[turn] && !busy && !stepping && mov.isEmpty && canAct(turn),
-                      color: kCol[pl],
-                      onTap: bots[turn] ? null : _uRoll,
-                    ),
-                    const SizedBox(width: 18),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${kNames[pl]}-এর চাল',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w900,
-                              color: kCol[pl],
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            stepping
-                                ? 'গুটি এগোচ্ছে...'
-                                : mov.isNotEmpty
-                                    ? 'হাইলাইট করা গুটিতে ট্যাপ করুন'
-                                    : 'ডাইস ছুড়তে ট্যাপ করুন',
-                            style: const TextStyle(color: Colors.white70, fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
+  Widget _card(int q) {
+    final i = seats.indexOf(q);
+    if (i < 0) return const SizedBox(height: 92);
+    final col = _lc[q];
+    final active = i == turn && !over;
+    final canRoll = active && !bots[i] && !busy && mov.isEmpty && canAct(i);
+    final status = !active
+        ? ''
+        : bots[i]
+            ? 'ভাবছে…'
+            : mov.isNotEmpty
+                ? 'গুটি বেছে নিন'
+                : 'ডাইস ঘোরান';
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      height: 92,
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(colors: [col.withOpacity(active ? .6 : .22), AC.bg1.withOpacity(.75)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        border: Border.all(color: active ? Colors.white : Colors.white.withOpacity(.15), width: active ? 2.2 : 1),
+        boxShadow: active ? [BoxShadow(color: col.withOpacity(.6), blurRadius: 18)] : const [],
       ),
+      child: Row(children: [
+        Container(
+          width: 50,
+          height: 50,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.black26, border: Border.all(color: col, width: 2.5)),
+          child: ClipOval(child: Face(col, size: 38)),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(_name(i), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 4),
+            Row(children: [
+              for (var t = 0; t < 4; t++)
+                Container(
+                  width: 10,
+                  height: 10,
+                  margin: const EdgeInsets.only(right: 3),
+                  decoration: BoxDecoration(shape: BoxShape.circle, color: pos[i][t] == 56 ? col : Colors.white24),
+                ),
+            ]),
+            if (status.isNotEmpty)
+              Padding(padding: const EdgeInsets.only(top: 3), child: Text(status, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: lighten(col, .5)))),
+          ]),
+        ),
+        Opacity(
+          opacity: active ? 1 : .3,
+          child: DiceView(active ? dice : 0, size: 56, active: canRoll, color: col, rolling: busy && active, onTap: canRoll ? _uRoll : null),
+        ),
+      ]),
     );
   }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: ArenaBg(
+          floaters: false,
+          child: SafeArea(
+            child: Column(children: [
+              ArenaBar('লুডু', onBack: () => Navigator.pop(context), trailing: net == null ? CircleBtn(Icons.refresh_rounded, _init) : null),
+              Expanded(
+                child: LayoutBuilder(builder: (_, bc) {
+                  final size = (math.min(bc.maxWidth - 24, bc.maxHeight - 92 * 2 - 70)).clamp(220.0, 620.0).toDouble();
+                  final hint = over
+                      ? ''
+                      : bots[turn]
+                          ? 'কম্পিউটার চাল দিচ্ছে...'
+                          : mov.isNotEmpty
+                              ? 'আলো জ্বলা গুটিতে ট্যাপ করুন'
+                              : 'নিজের কার্ডের ডাইসে ট্যাপ করুন';
+                  return Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Row(children: [Expanded(child: _card(0)), const SizedBox(width: 8), Expanded(child: _card(1))]),
+                        const SizedBox(height: 10),
+                        Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(size * .06),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withOpacity(.5), blurRadius: 24, offset: const Offset(0, 10)),
+                              BoxShadow(color: AC.violet.withOpacity(.45), blurRadius: 30),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(size * .06),
+                            child: SizedBox(
+                              width: size,
+                              height: size,
+                              child: GestureDetector(
+                                onTapUp: (d) => _tap(d.localPosition, size),
+                                child: CustomPaint(painter: _LudoPainter(pos, seats, mov, turn, pulse, mv, _from), size: Size(size, size)),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(children: [Expanded(child: _card(3)), const SizedBox(width: 8), Expanded(child: _card(2))]),
+                        const SizedBox(height: 10),
+                        Text(hint, style: const TextStyle(color: Colors.white60, fontWeight: FontWeight.w700)),
+                      ]),
+                    ),
+                  );
+                }),
+              ),
+            ]),
+          ),
+        ),
+      );
+}
+
+class _P {
+  final Offset o;
+  final int seat;
+  final bool canMove, done;
+  final double lift;
+  _P(this.o, this.seat, this.canMove, this.done, this.lift);
 }
 
 class _LudoPainter extends CustomPainter {
   final List<List<int>> pos;
   final List<int> seats, mov;
   final int turn;
-  _LudoPainter(this.pos, this.seats, this.mov, this.turn);
-
-  static const _quadCols = [
-    Color(0xFF1DA1F2), // Blue (top-left)
-    Color(0xFFE53935), // Red (top-right)
-    Color(0xFF43A047), // Green (bottom-right)
-    Color(0xFFFDD835), // Yellow (bottom-left)
-  ];
+  final Animation<double> pulse, mvA;
+  final Map<int, List<Offset>> from;
+  _LudoPainter(this.pos, this.seats, this.mov, this.turn, this.pulse, this.mvA, this.from)
+      : super(repaint: Listenable.merge([pulse, mvA]));
 
   RRect _r(double x, double y, double w, double h, double r) =>
       RRect.fromRectAndRadius(Rect.fromLTWH(x, y, w, h), Radius.circular(r));
 
-  void _drawStar(Canvas c, Offset o, double rad) {
+  Path _star(Offset o, double ro, double ri) {
     final p = Path();
     for (var i = 0; i < 10; i++) {
-      final r = i.isEven ? rad : rad * .45;
-      final a = -pi / 2 + i * pi / 5;
-      final pt = o + Offset(cos(a) * r, sin(a) * r);
+      final a = -math.pi / 2 + i * math.pi / 5;
+      final r = i.isEven ? ro : ri;
+      final x = o.dx + r * math.cos(a), y = o.dy + r * math.sin(a);
       if (i == 0) {
-        p.moveTo(pt.dx, pt.dy);
+        p.moveTo(x, y);
       } else {
-        p.lineTo(pt.dx, pt.dy);
+        p.lineTo(x, y);
       }
     }
     p.close();
-    c.drawPath(
-      p,
-      Paint()
-        ..color = const Color(0xFF546E7A)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = .06,
-    );
+    return p;
   }
 
-  void _drawPin(Canvas c, Offset tip, Color baseCol, bool highlight) {
-    final center = tip + const Offset(0, -.48);
-    const rad = .34;
-
-    if (highlight) {
-      c.drawCircle(
-        center,
-        rad + .18,
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = .09,
-      );
-    }
-
-    // Shadow under pin tip
-    c.drawOval(
-      Rect.fromCenter(center: tip + const Offset(0, .04), width: .44, height: .16),
-      Paint()..color = Colors.black38,
-    );
-
-    // Teardrop / map-pin silhouette matching reference
-    final pin = Path()
-      ..moveTo(tip.dx, tip.dy)
-      ..cubicTo(
-        tip.dx - .34,
-        tip.dy - .26,
-        center.dx - rad,
-        center.dy + .06,
-        center.dx - rad,
-        center.dy,
-      )
-      ..arcTo(
-        Rect.fromCircle(center: center, radius: rad),
-        pi,
-        pi,
-        false,
-      )
-      ..cubicTo(
-        center.dx + rad,
-        center.dy + .06,
-        tip.dx + .34,
-        tip.dy - .26,
-        tip.dx,
-        tip.dy,
-      )
+  void _arrow(Canvas c, Offset o, Offset d, Color col) {
+    final n = Offset(-d.dy, d.dx);
+    final p = Path()
+      ..moveTo(o.dx + d.dx * .3, o.dy + d.dy * .3)
+      ..lineTo(o.dx - d.dx * .18 + n.dx * .25, o.dy - d.dy * .18 + n.dy * .25)
+      ..lineTo(o.dx - d.dx * .18 - n.dx * .25, o.dy - d.dy * .18 - n.dy * .25)
       ..close();
-
-    c.drawPath(pin, Paint()..color = baseCol);
-    c.drawPath(
-      pin,
-      Paint()
-        ..color = const Color(0xFF263238)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = .045,
-    );
-
-    // Inner glossy ring & white core
-    c.drawCircle(center, rad * .62, Paint()..color = Colors.white.withOpacity(.92));
-    c.drawCircle(center, rad * .34, Paint()..color = baseCol);
-    c.drawCircle(center + const Offset(-.1, -.11), rad * .16, Paint()..color = Colors.white);
+    c.drawPath(p, Paint()..color = col);
   }
+
+  Shader _grad(Rect r, Color col) =>
+      LinearGradient(colors: [lighten(col, .22), darken(col, .1)], begin: Alignment.topLeft, end: Alignment.bottomRight).createShader(r);
 
   @override
   void paint(Canvas c, Size s) {
     c.scale(s.width / 15);
-    c.drawRRect(_r(0, 0, 15, 15, .55), Paint()..color = const Color(0xFFF8F9FD));
-
-    // 4 Corner Yards
-    const yardOrigins = [Offset(0, 0), Offset(9, 0), Offset(9, 9), Offset(0, 9)];
-    for (var i = 0; i < 4; i++) {
-      final ox = yardOrigins[i].dx, oy = yardOrigins[i].dy;
-      final qc = _quadCols[i];
-      c.drawRect(Rect.fromLTWH(ox, oy, 6, 6), Paint()..color = qc);
-      c.drawRect(
-        Rect.fromLTWH(ox + .85, oy + .85, 4.3, 4.3),
-        Paint()..color = Colors.white,
-      );
-      c.drawRect(
-        Rect.fromLTWH(ox + .85, oy + .85, 4.3, 4.3),
+    c.drawRRect(
+        _r(0, 0, 15, 15, .9),
         Paint()
-          ..color = qc.withOpacity(.45)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = .05,
-      );
+          ..shader = const LinearGradient(colors: [Color(0xFFFFFFFF), Color(0xFFE9E3FF)], begin: Alignment.topLeft, end: Alignment.bottomRight)
+              .createShader(const Rect.fromLTWH(0, 0, 15, 15)));
+
+    // হোম জোন
+    for (var i = 0; i < 4; i++) {
+      final ox = [0, 9, 9, 0][i].toDouble(), oy = [0, 0, 9, 9][i].toDouble();
+      final col = _lc[i];
+      final present = seats.contains(i);
+      final rr = _r(ox + .12, oy + .12, 5.76, 5.76, .7);
+      c.drawRRect(rr, Paint()..shader = _grad(rr.outerRect, col));
+      final inner = _r(ox + .8, oy + .8, 4.4, 4.4, .6);
+      c.drawRRect(inner.shift(const Offset(0, .1)), Paint()..color = Colors.black.withOpacity(.2));
+      c.drawRRect(inner, Paint()..color = const Color(0xFFFDFCFF));
       for (var t = 0; t < 4; t++) {
-        final slot = _where(i, -1, t);
-        c.drawCircle(slot + const Offset(0, .04), .48, Paint()..color = qc.withOpacity(.28));
-        c.drawCircle(slot, .42, Paint()..color = qc.withOpacity(.82));
-        c.drawCircle(slot, .22, Paint()..color = Colors.white.withOpacity(.35));
+        final o = _where(i, -1, t);
+        c.drawCircle(o, .64, Paint()..color = col.withOpacity(.16));
+        c.drawCircle(
+            o,
+            .64,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = .09
+              ..color = col.withOpacity(.75));
+      }
+      if (!present) c.drawRRect(rr, Paint()..color = Colors.black.withOpacity(.32));
+      if (present && seats.isNotEmpty && seats[turn] == i) {
+        c.drawRRect(
+            rr,
+            Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = .16
+              ..color = Colors.white.withOpacity(.45 + .55 * pulse.value));
       }
     }
 
-    // Outer track cells
+    // পথের ঘর
     final line = Paint()
-      ..color = const Color(0xFF90A4AE)
+      ..color = const Color(0xFFD6CEF0)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = .045;
-
+      ..strokeWidth = .05;
     for (var i = 0; i < 52; i++) {
       final o = _path[i];
-      final rect = Rect.fromCenter(center: o, width: 1, height: 1);
+      final r = _r(o.dx - .5 + .04, o.dy - .5 + .04, .92, .92, .16);
       final sc = _start.indexOf(i);
-      c.drawRect(rect, Paint()..color = sc >= 0 ? _quadCols[sc] : Colors.white);
-      c.drawRect(rect, line);
-      if (_safe.contains(i) && sc < 0) {
-        _drawStar(c, o, .33);
+      c.drawRRect(r, sc >= 0 ? (Paint()..shader = _grad(r.outerRect, _lc[sc])) : (Paint()..color = Colors.white));
+      c.drawRRect(r, line);
+      if (_safe.contains(i)) {
+        c.drawPath(_star(o, .32, .14), Paint()..color = sc >= 0 ? Colors.white : const Color(0xFFB7A6F2));
       }
     }
-
-    // Colored home columns (5 cells each)
+    for (var i = 0; i < 4; i++) {
+      final idx = (_start[i] + 50) % 52;
+      _arrow(c, _path[idx], Offset(_hd[i][2].toDouble(), _hd[i][3].toDouble()), _lc[i]);
+    }
     for (var i = 0; i < 4; i++) {
       for (final o in _home(i)) {
-        final rect = Rect.fromCenter(center: o, width: 1, height: 1);
-        c.drawRect(rect, Paint()..color = _quadCols[i]);
-        c.drawRect(rect, line);
+        final r = _r(o.dx - .46, o.dy - .46, .92, .92, .16);
+        c.drawRRect(r, Paint()..shader = _grad(r.outerRect, _lc[i]));
       }
     }
 
-    // Center 3x3 home triangles matching reference orientation
+    // মাঝের ত্রিভুজ
     const ctr = Offset(7.5, 7.5);
-    const corners = [
-      Offset(6, 6), // top-left
-      Offset(9, 6), // top-right
-      Offset(9, 9), // bottom-right
-      Offset(6, 9), // bottom-left
-    ];
-    // Left -> Blue (0), Top -> Red (1), Right -> Green (2), Bottom -> Yellow (3)
-    const triEdges = [
-      [0, 3], // left edge -> Blue
-      [0, 1], // top edge -> Red
-      [1, 2], // right edge -> Green
-      [3, 2], // bottom edge -> Yellow
+    const tri = [
+      [Offset(6, 6), Offset(6, 9)], [Offset(6, 6), Offset(9, 6)],
+      [Offset(9, 6), Offset(9, 9)], [Offset(6, 9), Offset(9, 9)],
     ];
     for (var i = 0; i < 4; i++) {
-      final p1 = corners[triEdges[i][0]];
-      final p2 = corners[triEdges[i][1]];
-      final triPath = Path()
-        ..moveTo(p1.dx, p1.dy)
-        ..lineTo(p2.dx, p2.dy)
+      final path = Path()
+        ..moveTo(tri[i][0].dx, tri[i][0].dy)
+        ..lineTo(tri[i][1].dx, tri[i][1].dy)
         ..lineTo(ctr.dx, ctr.dy)
         ..close();
-      c.drawPath(triPath, Paint()..color = _quadCols[i]);
+      c.drawPath(path, Paint()..shader = _grad(path.getBounds(), _lc[i]));
       c.drawPath(
-        triPath,
-        Paint()
-          ..color = const Color(0xFF546E7A)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = .045,
-      );
+          path,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = .07
+            ..strokeJoin = StrokeJoin.round
+            ..color = Colors.white.withOpacity(.7));
     }
+    c.drawCircle(ctr, .55, Paint()..color = Colors.white);
+    c.drawPath(_star(ctr, .4, .17), Paint()..color = const Color(0xFFFFB300));
 
-    // Direction arrows on entry cells
-    void arrow(Offset pos, double angle) {
-      c.save();
-      c.translate(pos.dx, pos.dy);
-      c.rotate(angle);
-      final tp = TextPainter(
-        text: const TextSpan(
-          text: '→',
-          style: TextStyle(fontSize: .65, fontWeight: FontWeight.w900, color: Colors.white),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(c, Offset(-tp.width / 2, -tp.height / 2));
-      c.restore();
-    }
-    arrow(const Offset(1.5, 6.5), 0); // Blue entry right
-    arrow(const Offset(8.5, 1.5), pi / 2); // Red entry down
-    arrow(const Offset(13.5, 8.5), pi); // Green entry left
-    arrow(const Offset(6.5, 13.5), -pi / 2); // Yellow entry up
-
-    // Pawns / Map-pin tokens
+    // গুটি
+    final ps = <_P>[];
     for (var i = 0; i < seats.length; i++) {
-      final seatId = seats[i];
-      final col = _quadCols[seatId];
       for (var t = 0; t < 4; t++) {
         final p = pos[i][t];
-        var o = _where(seatId, p, t);
-        if (p >= 0 && p < 56) {
-          o += Offset((t % 2 - .5) * .24, (t ~/ 2 - .5) * .24 + .12);
-        } else if (p < 0) {
-          o += const Offset(0, .16);
+        var target = _where(seats[i], p, t);
+        if (p >= 0 && p < 56) target += Offset((t % 2 - .5) * .22, (t ~/ 2 - .5) * .22);
+        var o = target;
+        var lift = 0.0;
+        final a = from[i * 4 + t];
+        if (a != null) {
+          final segs = a.length - 1;
+          final f = (mvA.value * segs).clamp(0.0, segs.toDouble()).toDouble();
+          final idx = math.min(f.floor(), segs - 1);
+          final local = f - idx;
+          final e = segs == 1 ? Curves.easeInOut.transform(local) : local;
+          o = Offset.lerp(a[idx], a[idx + 1], e)!;
+          lift = a[idx] == a[idx + 1] ? 0.0 : math.sin(math.pi * local) * (segs == 1 ? .7 : .35);
         }
-        _drawPin(c, o, col, i == turn && mov.contains(t));
+        final can = i == turn && mov.contains(t);
+        if (can) lift = pulse.value * .22;
+        ps.add(_P(o, seats[i], can, p == 56, lift));
       }
+    }
+    ps.sort((a, b) => a.o.dy.compareTo(b.o.dy));
+    for (final p in ps) {
+      _pin(c, p);
     }
   }
 
+  void _pin(Canvas c, _P p) {
+    final col = _lc[p.seat];
+    final k = p.done ? .62 : 1.0;
+    final gp = Offset(p.o.dx, p.o.dy + .3 * k);
+    c.drawOval(Rect.fromCenter(center: gp.translate(0, .06), width: 1.0 * k, height: .36 * k), Paint()..color = Colors.black.withOpacity(.3));
+    if (p.canMove) {
+      c.drawOval(
+          Rect.fromCenter(center: gp, width: (1.15 + .35 * pulse.value) * k, height: (.55 + .15 * pulse.value) * k),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = .12
+            ..color = Colors.white);
+    }
+    c.drawOval(
+        Rect.fromCenter(center: gp, width: .86 * k, height: .3 * k),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = .09
+          ..color = darken(col, .25));
+    final o = Offset(p.o.dx, p.o.dy - p.lift * k);
+    final hc = o.translate(0, -.2 * k);
+    final hr = .34 * k;
+    final tip = o.translate(0, .32 * k);
+    final tri = Path()
+      ..moveTo(hc.dx - hr * .86, hc.dy + hr * .5)
+      ..lineTo(hc.dx + hr * .86, hc.dy + hr * .5)
+      ..lineTo(tip.dx, tip.dy)
+      ..close();
+    final body = Path.combine(PathOperation.union, Path()..addOval(Rect.fromCircle(center: hc, radius: hr)), tri);
+    c.drawPath(
+        body,
+        Paint()
+          ..shader = RadialGradient(center: const Alignment(-.4, -.5), radius: 1.0, colors: [lighten(col, .55), col, darken(col, .25)], stops: const [0, .5, 1])
+              .createShader(body.getBounds()));
+    c.drawPath(
+        body,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = .07 * k
+          ..strokeJoin = StrokeJoin.round
+          ..color = Colors.white);
+    c.drawCircle(hc, hr * .46, Paint()..color = Colors.white);
+    c.drawCircle(hc, hr * .26, Paint()..color = col);
+    c.drawCircle(hc.translate(-hr * .4, -hr * .5), hr * .13, Paint()..color = Colors.white.withOpacity(.65));
+  }
+
   @override
-  bool shouldRepaint(_) => true;
+  bool shouldRepaint(covariant _LudoPainter old) => true;
 }
