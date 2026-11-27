@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'common.dart';
 import 'net.dart';
+import 'game_ui.dart';
+import 'ui.dart';
 
 const _rc = .034, _rs = .044, _vmax = .02;
 const _corners = [Offset(0, 0), Offset(1, 0), Offset(0, 1), Offset(1, 1)];
@@ -43,7 +45,7 @@ class _CarromState extends State<CarromPage> with SingleTickerProviderStateMixin
     _shoot(v, p);
   }
 
-  late Ticker tick;
+  late Ticker _ticker;
   List<_Coin> coins = [];
   late _Coin striker;
   int turn = 0;
@@ -57,7 +59,7 @@ class _CarromState extends State<CarromPage> with SingleTickerProviderStateMixin
   @override
   void initState() {
     super.initState();
-    tick = createTicker((_) {
+    _ticker = createTicker((_) {
       if (!moving) return;
       for (var i = 0; i < 4; i++) _step();
       setState(() {});
@@ -68,7 +70,7 @@ class _CarromState extends State<CarromPage> with SingleTickerProviderStateMixin
   }
 
   @override
-  void dispose() { tick.dispose(); super.dispose(); }
+  void dispose() { _ticker.dispose(); super.dispose(); }
 
   void _init() {
     coins = [_Coin(.5, .5, 2)];
@@ -132,7 +134,9 @@ class _CarromState extends State<CarromPage> with SingleTickerProviderStateMixin
     if (wl == 0 || bl == 0) {
       over = true;
       final w = wl == 0 ? 0 : 1;
-      showWin(context, w == 0 ? 'সাদা' : 'কালো', w == 0 ? Colors.white : Colors.grey, net == null ? _init : () => Navigator.pop(context));
+      final rw = giveWinReward(vsPc: widget.vsPc, turn: w, net: net);
+      showWin(context, playerName(w, n: 2, bots: [false, widget.vsPc], vsPc: widget.vsPc, net: net), w == 0 ? kCol[2] : kCol[3],
+          net == null ? _init : () => Navigator.pop(context), reward: rw);
       return;
     }
     if (!extra) turn = 1 - turn;
@@ -172,56 +176,63 @@ class _CarromState extends State<CarromPage> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     final wl = coins.where((c) => c.alive && c.type == 0).length, bl = coins.where((c) => c.alive && c.type == 1).length;
-    return Scaffold(
-      appBar: AppBar(title: const Text('ক্যারাম বোর্ড'), backgroundColor: Colors.transparent,
-          actions: [if (net == null) IconButton(onPressed: _init, icon: const Icon(Icons.refresh_rounded))]),
-      body: SafeArea(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.all(10),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              for (final p in [0, 1])
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(color: turn == p ? kCol[p == 0 ? 2 : 3] : Colors.white10, borderRadius: BorderRadius.circular(24)),
-                  child: Text('${p == 0 ? '⚪ সাদা' : '⚫ কালো${widget.vsPc ? ' 🤖' : ''}'}: ${p == 0 ? wl : bl}', style: const TextStyle(fontWeight: FontWeight.w800)),
-                ),
-            ]),
-          ),
-          Expanded(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: const Color(0xFF5D4037), borderRadius: BorderRadius.circular(24)),
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: LayoutBuilder(builder: (_, bc) {
-                      final w = bc.maxWidth;
-                      return GestureDetector(
-                        onPanUpdate: (d) { if (!moving && !bot && canAct(turn)) setState(() => drag = d.localPosition / w); },
-                        onPanEnd: (_) {
-                          if (drag == null || moving || bot) return;
-                          final v = striker.o - drag!;
-                          if (v.distance > .02) _userShot(v, (v.distance / .3).clamp(.15, 1.0).toDouble()); else setState(() => drag = null);
-                        },
-                        child: CustomPaint(painter: _CarromPainter(coins, striker, drag, turn), size: Size.infinite),
-                      );
-                    }),
-                  ),
+    final scores = [9 - wl, 9 - bl];
+    final names = [for (var p = 0; p < 2; p++) playerName(p, n: 2, bots: [false, widget.vsPc], vsPc: widget.vsPc, net: net)];
+    final canAim = !moving && !bot && canAct(turn) && !over;
+    return GameScaffold(
+      title: 'ক্যারাম বোর্ড',
+      onRestart: net == null ? _init : null,
+      child: LayoutBuilder(builder: (_, bc) {
+        final size = min(bc.maxWidth - 24, bc.maxHeight - 58 - 56 - 40 - 24).clamp(220.0, 640.0).toDouble();
+        final fr = size * .07, sw = size - 2 * fr;
+        return Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              SizedBox(
+                width: size,
+                height: size,
+                child: GestureDetector(
+                  onPanUpdate: (d) {
+                    if (canAim) setState(() => drag = Offset((d.localPosition.dx - fr) / sw, (d.localPosition.dy - fr) / sw));
+                  },
+                  onPanEnd: (_) {
+                    if (drag == null || moving || bot) return;
+                    final v = striker.o - drag!;
+                    if (v.distance > .02) {
+                      _userShot(v, (v.distance / .3).clamp(.15, 1.0).toDouble());
+                    } else {
+                      setState(() => drag = null);
+                    }
+                  },
+                  child: CustomPaint(painter: _CarromPainter(coins, striker, drag, turn, fr, sw, canAim), size: Size(size, size)),
                 ),
               ),
-            ),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(activeTrackColor: AC.gold, thumbColor: AC.gold, inactiveTrackColor: Colors.white24, overlayColor: AC.gold.withOpacity(.2)),
+                child: Slider(
+                  value: sx, min: .15, max: .85,
+                  onChanged: !canAim ? null : (v) => setState(() { sx = v; striker.x = v; }),
+                ),
+              ),
+              SizedBox(
+                height: 26,
+                child: Text(moving ? '' : msg, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+              ),
+              PlayerStrip([
+                for (var p = 0; p < 2; p++)
+                  PlayerChip(
+                    name: names[p],
+                    sub: 'স্কোর ${bnNum(scores[p])} · ${p == 0 ? 'সাদা' : 'কালো'}',
+                    color: kCol[p == 0 ? 2 : 3],
+                    active: turn == p && !over,
+                  ),
+              ]),
+              const SizedBox(height: 8),
+            ]),
           ),
-          Slider(
-            value: sx, min: .15, max: .85,
-            onChanged: moving || bot || !canAct(turn) ? null : (v) => setState(() { sx = v; striker.x = v; }),
-          ),
-          Padding(padding: const EdgeInsets.only(bottom: 14), child: Text(msg, style: const TextStyle(color: Colors.white60))),
-        ]),
-      ),
+        );
+      }),
     );
   }
 }
@@ -231,46 +242,104 @@ class _CarromPainter extends CustomPainter {
   final _Coin striker;
   final Offset? drag;
   final int turn;
-  _CarromPainter(this.coins, this.striker, this.drag, this.turn);
+  final double fr, sw;
+  final bool canAim;
+  _CarromPainter(this.coins, this.striker, this.drag, this.turn, this.fr, this.sw, this.canAim);
 
-  void _disc(Canvas c, _Coin k, Color col, Color rim) {
-    c.drawCircle(k.o + const Offset(0, .006), k.r, Paint()..color = Colors.black38);
+  void _disc(Canvas c, _Coin k, List<Color> g, Color rim, Color ring) {
+    c.drawCircle(k.o + const Offset(.003, .008), k.r * 1.02, Paint()..color = Colors.black.withOpacity(.35)..maskFilter = const MaskFilter.blur(BlurStyle.normal, .004));
     c.drawCircle(k.o, k.r, Paint()..color = rim);
-    c.drawCircle(k.o, k.r * .78, Paint()..color = col);
-    c.drawCircle(k.o + Offset(-k.r * .25, -k.r * .25), k.r * .22, Paint()..color = Colors.white38);
+    c.drawCircle(k.o, k.r * .9, Paint()..shader = RadialGradient(center: const Alignment(-.4, -.5), colors: g).createShader(Rect.fromCircle(center: k.o, radius: k.r)));
+    final rp = Paint()..style = PaintingStyle.stroke..strokeWidth = k.r * .09..color = ring;
+    c.drawCircle(k.o, k.r * .66, rp);
+    c.drawCircle(k.o, k.r * .36, rp);
+    c.drawCircle(k.o + Offset(-k.r * .35, -k.r * .4), k.r * .14, Paint()..color = Colors.white.withOpacity(.5));
+  }
+
+  Offset _ray(Offset o, Offset d) {
+    var p = o;
+    for (var i = 0; i < 170; i++) {
+      p += d * .006;
+      if (p.dx < _rs || p.dx > 1 - _rs || p.dy < _rs || p.dy > 1 - _rs) return p;
+      for (final k in coins) {
+        if (k.alive && (k.o - p).distance < _rs + _rc) return p;
+      }
+    }
+    return p;
   }
 
   @override
   void paint(Canvas c, Size s) {
-    c.scale(s.width);
-    c.clipRRect(RRect.fromRectAndRadius(const Rect.fromLTWH(0, 0, 1, 1), const Radius.circular(.03)));
-    c.drawRect(const Rect.fromLTWH(0, 0, 1, 1), Paint()..color = const Color(0xFFFFE9C7));
-    final ln = Paint()..color = const Color(0xFFB8860B)..style = PaintingStyle.stroke..strokeWidth = .004;
+    final S = s.width;
+    // কাঠের ফ্রেম
+    final outer = RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, S, S), Radius.circular(S * .05));
+    c.drawRRect(outer, Paint()..shader = const LinearGradient(colors: [Color(0xFFB57338), Color(0xFF7A4520), Color(0xFF9A5C2B)], begin: Alignment.topLeft, end: Alignment.bottomRight).createShader(Rect.fromLTWH(0, 0, S, S)));
+    c.drawRRect(outer, Paint()..style = PaintingStyle.stroke..strokeWidth = S * .008..color = const Color(0xFF4A2810));
+    c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(fr * .35, fr * .35, S - fr * .7, S - fr * .7), Radius.circular(S * .035)),
+        Paint()..style = PaintingStyle.stroke..strokeWidth = S * .004..color = const Color(0xFFD9A066).withOpacity(.7));
+
+    c.translate(fr, fr);
+    c.scale(sw);
+    const full = Rect.fromLTWH(0, 0, 1, 1);
+    c.save();
+    c.clipRRect(RRect.fromRectAndRadius(full, const Radius.circular(.012)));
+    c.drawRect(full, Paint()..shader = const RadialGradient(colors: [Color(0xFFF9E8C0), Color(0xFFEBCB8D)], radius: .85).createShader(full));
+    final ln = Paint()..color = const Color(0xFF8B5A2B)..style = PaintingStyle.stroke..strokeWidth = .004;
+    c.drawRect(const Rect.fromLTWH(.15, .14, .7, .72), ln);
     c.drawCircle(const Offset(.5, .5), .13, ln);
-    c.drawCircle(const Offset(.5, .5), .03, Paint()..color = const Color(0xFFFF4D6D).withOpacity(.4));
-    for (final y in [.14, .86]) {
-      c.drawLine(Offset(.15, y), Offset(.85, y), ln);
-      c.drawCircle(Offset(.15, y), .018, ln);
-      c.drawCircle(Offset(.85, y), .018, ln);
+    c.drawCircle(const Offset(.5, .5), .155, Paint()..color = const Color(0xFF8B5A2B).withOpacity(.55)..style = PaintingStyle.stroke..strokeWidth = .003);
+    c.drawCircle(const Offset(.5, .5), .03, Paint()..color = const Color(0xFFD9534F).withOpacity(.5));
+    for (final x in [.15, .85]) {
+      for (final y in [.14, .86]) {
+        final dx = x < .5 ? -1.0 : 1.0, dy = y < .5 ? -1.0 : 1.0;
+        c.drawLine(Offset(x, y), Offset(x + dx * .09, y + dy * .09), ln);
+        c.drawCircle(Offset(x, y), .026, Paint()..color = const Color(0xFFD9534F));
+        c.drawCircle(Offset(x, y), .026, Paint()..style = PaintingStyle.stroke..strokeWidth = .004..color = const Color(0xFF8E2B2B));
+      }
     }
+    c.restore();
+
+    // পকেট
     for (final k in _corners) {
-      c.drawCircle(k, .07, Paint()..color = const Color(0xFF1B1B2F));
+      c.drawCircle(k, .078, Paint()..shader = const RadialGradient(colors: [Color(0xFF000000), Color(0xFF1B1B26)], stops: [.6, 1]).createShader(Rect.fromCircle(center: k, radius: .078)));
+      c.drawCircle(k, .078, Paint()..style = PaintingStyle.stroke..strokeWidth = .006..color = const Color(0xFF3A2312));
     }
+
+    // গুটি
     for (final k in coins.where((k) => k.alive)) {
-      if (k.type == 0) _disc(c, k, Colors.white, const Color(0xFFD7CCC8));
-      if (k.type == 1) _disc(c, k, const Color(0xFF2B2B3C), const Color(0xFF000000));
-      if (k.type == 2) _disc(c, k, const Color(0xFFFF4D6D), const Color(0xFFB71C3C));
+      if (k.type == 0) _disc(c, k, const [Colors.white, Color(0xFFE8DDC8)], const Color(0xFFCFC3AB), const Color(0xFFB9AA8B));
+      if (k.type == 1) _disc(c, k, const [Color(0xFF55566A), Color(0xFF15151E)], Colors.black, const Color(0xFF7A7B90));
+      if (k.type == 2) _disc(c, k, const [Color(0xFFFF7088), Color(0xFFD01C3E)], const Color(0xFF8E1330), const Color(0xFFFFB3C0));
     }
-    if (striker.alive) _disc(c, striker, kCol[turn == 0 ? 2 : 3], Colors.white);
+    if (striker.alive) _disc(c, striker, const [Color(0xFFFFE27A), Color(0xFFE59A12)], const Color(0xFFB36B00), const Color(0xFFFFF3B0));
+
+    // এইম গাইড
     if (drag != null) {
       final v = striker.o - drag!;
       if (v.distance > .01) {
         final d = v / v.distance;
-        c.drawLine(striker.o, striker.o + d * (.12 + v.distance), Paint()..color = Colors.black54..strokeWidth = .006);
-        c.drawLine(striker.o, drag!, Paint()..color = kCol[1]..strokeWidth = .008..strokeCap = StrokeCap.round);
+        final end = _ray(striker.o, d);
+        final len = (end - striker.o).distance;
+        for (var t = .04; t < len; t += .026) {
+          c.drawCircle(striker.o + d * t, .0045, Paint()..color = Colors.white.withOpacity(.95));
+        }
+        c.drawPath(star5(end, .018, .008), Paint()..color = Colors.white);
+        c.drawLine(striker.o, drag!, Paint()..color = kCol[1].withOpacity(.85)..strokeWidth = .008..strokeCap = StrokeCap.round);
+        c.drawCircle(drag!, .014, Paint()..color = kCol[1]);
       }
     }
+
+    // পাওয়ার বার (ডান ফ্রেমে)
+    final pw = drag == null ? 0.0 : ((striker.o - drag!).distance / .3).clamp(.0, 1.0).toDouble();
+    final track = RRect.fromRectAndRadius(const Rect.fromLTWH(1.02, .25, .028, .5), const Radius.circular(.014));
+    c.drawRRect(track, Paint()..color = Colors.black.withOpacity(.4));
+    if (pw > 0) {
+      final h = .5 * pw;
+      final f = RRect.fromRectAndRadius(Rect.fromLTWH(1.02, .75 - h, .028, h), const Radius.circular(.014));
+      c.drawRRect(f, Paint()..shader = const LinearGradient(colors: [Color(0xFF2EE66B), Color(0xFFFFC83D), Color(0xFFFF4D6D)], begin: Alignment.bottomCenter, end: Alignment.topCenter).createShader(const Rect.fromLTWH(1.02, .25, .028, .5)));
+    }
   }
+
   @override
   bool shouldRepaint(_) => true;
 }

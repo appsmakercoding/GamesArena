@@ -1,7 +1,10 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'common.dart';
 import 'net.dart';
 import 'gutti.dart';
+import 'game_ui.dart';
+import 'ui.dart';
 
 class TigerPage extends StatefulWidget {
   final bool vsPc;
@@ -11,12 +14,14 @@ class TigerPage extends StatefulWidget {
   State<TigerPage> createState() => _TigerState();
 }
 
-class _TigerState extends State<TigerPage> with NetMix<TigerPage> {
+class _TigerState extends State<TigerPage> with NetMix<TigerPage>, SingleTickerProviderStateMixin {
   @override
   Net? get net => widget.net;
   @override
   bool remote(Map a) { _tap(a['i'] as int, true); return true; }
 
+  late final AnimationController mv = AnimationController(vsync: this, duration: const Duration(milliseconds: 260), value: 1);
+  int mFrom = -1, mTo = -1, ghost = -1, ghostV = 0;
   late List<int> b;
   int turn = 0, hand = 20, cap = 0, sel = -1;
   bool over = false;
@@ -29,10 +34,17 @@ class _TigerState extends State<TigerPage> with NetMix<TigerPage> {
     _init();
   }
 
+  @override
+  void dispose() {
+    mv.dispose();
+    super.dispose();
+  }
+
   void _init() {
     b = List.filled(25, 0);
     for (final t in [0, 4, 20, 24]) b[t] = 1;
     turn = 0; hand = 20; cap = 0; sel = -1; over = false; tg = [];
+    mFrom = mTo = ghost = -1; mv.value = 1;
     setState(() {});
   }
 
@@ -46,13 +58,17 @@ class _TigerState extends State<TigerPage> with NetMix<TigerPage> {
     return r;
   }
 
-  void _win(String s, Color c) { over = true; showWin(context, s, c, net == null ? _init : () => Navigator.pop(context)); }
+  void _win(String s, Color c, int wi) {
+    over = true;
+    final rw = giveWinReward(vsPc: widget.vsPc, turn: wi, net: net);
+    showWin(context, s, c, net == null ? _init : () => Navigator.pop(context), reward: rw);
+  }
 
   void _tap(int i, [bool rem = false]) {
     if (over || bot) return;
     if (!rem) { if (!canAct(turn)) return; emit({'i': i}); }
     if (turn == 0 && hand > 0) {
-      if (b[i] == 0) { setState(() { b[i] = 2; hand--; }); _next(); }
+      if (b[i] == 0) { mFrom = mTo = ghost = -1; setState(() { b[i] = 2; hand--; }); _next(); }
       return;
     }
     if (sel >= 0) {
@@ -63,16 +79,18 @@ class _TigerState extends State<TigerPage> with NetMix<TigerPage> {
   }
 
   void _act(int f, int t, int c) {
+    mFrom = f; mTo = t; ghost = c; ghostV = c >= 0 ? b[c] : 0;
+    mv.forward(from: 0);
     setState(() { b[t] = b[f]; b[f] = 0; if (c >= 0) { b[c] = 0; cap++; } sel = -1; tg = []; });
-    if (cap >= 8) { _win('🐯 বাঘ', kCol[2]); return; }
+    if (cap >= 8) { _win('🐯 বাঘ', kCol[2], 1); return; }
     _next();
   }
 
   void _next() {
     setState(() { turn = 1 - turn; sel = -1; tg = []; });
-    if (turn == 1 && _tigerMoves().isEmpty) { _win('🐐 ছাগল', kCol[1]); return; }
+    if (turn == 1 && _tigerMoves().isEmpty) { _win('🐐 ছাগল', kCol[1], 0); return; }
     if (turn == 0 && hand == 0 && !List.generate(25, (i) => i).any((i) => b[i] == 2 && _mv(i).isNotEmpty)) {
-      _win('🐯 বাঘ', kCol[2]);
+      _win('🐯 বাঘ', kCol[2], 1);
       return;
     }
     if (bot) {
@@ -87,25 +105,68 @@ class _TigerState extends State<TigerPage> with NetMix<TigerPage> {
     }
   }
 
+  String nm(int i) => playerName(i, n: 2, bots: [false, widget.vsPc], vsPc: widget.vsPc, net: net);
+  static const tigerCol = Color(0xFFFF9800);
+  static const goatCol = Color(0xFFFFF1DC);
+
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('বাঘ-বকরি'), backgroundColor: Colors.transparent,
-            actions: [if (net == null) IconButton(onPressed: _init, icon: const Icon(Icons.refresh_rounded))]),
-        body: SafeArea(
-          child: Column(children: [
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(turn == 0 ? '🐐 ছাগলের চাল' : '🐯 বাঘের চাল',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: turn == 0 ? kCol[1] : kCol[2])),
-            ),
-            Text('হাতে ছাগল: $hand   •   ধরা পড়েছে: $cap/৮', style: const TextStyle(color: Colors.white70)),
-            Expanded(child: BoardView(5, 5, GridPainter(5, 5, b, sel, tg, {1: kCol[2], 2: kCol[1]}, {1: '🐯', 2: '🐐'}), _tap)),
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('ছাগল: ২০টি বসান, সব বাঘ আটকে দিন। বাঘ: ৮টি ছাগল ধরুন।',
-                  textAlign: TextAlign.center, style: TextStyle(color: Colors.white54, fontSize: 12)),
-            ),
-          ]),
+        body: WoodBg(
+          child: SafeArea(
+            child: LayoutBuilder(builder: (_, bc) {
+              final bw = math.min(bc.maxWidth - 28, bc.maxHeight - 80 * 2 - 120).clamp(200.0, 700.0).toDouble();
+              final cs = bw / 5;
+              return Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Row(children: [
+                      GestureDetector(
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(.9), boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)]),
+                          child: const Icon(Icons.arrow_back_rounded, color: Color(0xFF1E40C8)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: WoodPlate(name: nm(1), sub: 'বাঘ 🐯', score: 'ধরেছে: ${bnNum(cap)}/৮', color: tigerCol, active: turn == 1 && !over)),
+                      const SizedBox(width: 8),
+                      net == null
+                          ? GestureDetector(
+                              onTap: _init,
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(.9), boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)]),
+                                child: const Icon(Icons.refresh_rounded, color: Color(0xFF1E40C8)),
+                              ),
+                            )
+                          : const SizedBox(width: 44),
+                    ]),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: bw,
+                      height: bw,
+                      child: GestureDetector(
+                        onTapUp: (d) => _tap((d.localPosition.dy / cs).floor().clamp(0, 4).toInt() * 5 + (d.localPosition.dx / cs).floor().clamp(0, 4).toInt()),
+                        child: CustomPaint(
+                          painter: GridPainter(5, 5, b, sel, tg, {1: tigerCol, 2: goatCol}, {1: '🐯', 2: '🐐'}, 0, mv, mFrom, mTo, ghost, ghostV),
+                          size: Size(bw, bw),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    WoodPlate(name: nm(0), sub: 'ছাগল 🐐 · হাতে ${bnNum(hand)}', score: 'হারিয়েছে: ${bnNum(cap)}', color: const Color(0xFF8D6E63), active: turn == 0 && !over),
+                    const SizedBox(height: 6),
+                    const Text('ছাগল: ২০টি বসান, সব বাঘ আটকে দিন। বাঘ: ৮টি ছাগল ধরুন।',
+                        textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF5A3410), fontWeight: FontWeight.w800, fontSize: 12.5)),
+                  ]),
+                ),
+              );
+            }),
+          ),
         ),
       );
 }
